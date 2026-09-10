@@ -7,6 +7,13 @@ import { type Document } from './db/schema';
 function Documents() {
   const [documents, setDocuments] = useState<Document[]>([]);
 
+  const toggleStar = async (doc: Document) => {
+    const updated = await api.toggleStar(doc.id);
+    setDocuments(
+      documents.map((d) => (d.id === doc.id ? updated : d)),
+    );
+  };
+
   const refresh = () => {
     api
       .getDocuments()
@@ -52,6 +59,24 @@ function Documents() {
               key={doc.id}
               className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm transition-shadow hover:shadow"
             >
+              <div className="flex items-center justify-between">
+                <p className="text-sm text-gray-500">
+                  {doc.createdAt
+                    ? new Date(doc.createdAt).toLocaleString()
+                    : 'Unknown'}
+                </p>
+                <button
+                  onClick={() => toggleStar(doc)}
+                  aria-label={doc.starred ? 'Unstar' : 'Star'}
+                  className={`rounded text-xl leading-none transition-colors hover:scale-110 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 ${
+                    doc.starred
+                      ? 'text-yellow-500'
+                      : 'text-gray-300 hover:text-yellow-400'
+                  }`}
+                >
+                  {doc.starred ? '★' : '☆'}
+                </button>
+              </div>
               <p className="font-medium text-gray-900">{doc.filename}</p>
               <p className="mt-1 text-sm text-gray-600">{doc.summary}</p>
             </li>
@@ -63,6 +88,7 @@ function Documents() {
     </main>
   );
 }
+
 
 function AuthViewWrapper() {
   const { pathname } = useParams();

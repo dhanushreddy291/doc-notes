@@ -32,5 +32,5 @@ export const api = {
     }),
 
   toggleStar: (id: string) =>
-    api.request(`/documents/${id}`, { method: 'PATCH' }),
+    api.request(`/documents/${id}`, { method: 'PATCH' })
 };
