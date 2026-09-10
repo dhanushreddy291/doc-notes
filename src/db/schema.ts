@@ -165,6 +165,7 @@ export const documents = pgTable('documents', {
 	filename: text('filename').notNull(),
 	objectKey: text('object_key').notNull(),
 	summary: text('summary').notNull(),
+	starred: boolean('starred').notNull().default(false),
 	createdAt: timestamp('created_at').defaultNow(),
 });
 

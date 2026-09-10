@@ -107,4 +107,24 @@ app.get('/documents', async (c) => {
   return c.json(rows);
 });
 
+app.patch('/documents/:id', async (c) => {
+  const userId = c.get('userId');
+  const id = c.req.param('id');
+
+  const [existing] = await db
+    .select()
+    .from(documents)
+    .where(eq(documents.id, id));
+  if (!existing || existing.userId !== userId) {
+    return c.json({ error: 'Not found' }, 404);
+  }
+
+  const [row] = await db
+    .update(documents)
+    .set({ starred: !existing.starred })
+    .where(eq(documents.id, id))
+    .returning();
+  return c.json(row);
+});
+
 export default app;
