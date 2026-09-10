@@ -1,0 +1,88 @@
+name: Preview environment
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, closed]
+
+concurrency:
+  group: preview-${{ github.event.number }}
+  cancel-in-progress: true
+
+jobs:
+  preview:
+    if: github.event.action != 'closed'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+      - run: npm i -g neon@latest
+
+      - name: Create the preview branch
+        uses: neondatabase/create-branch-action@v6
+        with:
+          project_id: ${{ vars.NEON_PROJECT_ID }}
+          branch_name: preview/${{ github.head_ref }}
+          api_key: ${{ secrets.NEON_API_KEY }}
+
+      - name: Apply neon.ts and deploy the function to the preview branch
+        run: |
+          neon deploy --branch "preview/${{ github.head_ref }}" \
+            --project-id "$NEON_PROJECT_ID" --update-existing
+        env:
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+          NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
+
+      - name: Pull the preview branch's variables and run migrations
+        run: |
+          neon env pull --branch "preview/${{ github.head_ref }}" \
+            --file .env.preview --project-id "$NEON_PROJECT_ID"
+          set -a && source .env.preview && set +a
+          echo "VITE_NEON_AUTH_URL=$NEON_AUTH_BASE_URL" >> "$GITHUB_ENV"
+          echo "VITE_NEON_FUNCTION_API_BASE_URL=$NEON_FUNCTION_API_BASE_URL" >> "$GITHUB_ENV"
+          npx drizzle-kit migrate
+        env:
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+          NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
+
+      - name: Build the frontend
+        run: npm run build
+
+      - name: Deploy the preview to Vercel
+        id: deploy
+        run: |
+          mkdir -p .vercel
+          printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          URL=$(npx vercel deploy dist --yes --token "$VERCEL_TOKEN" \
+            | grep -Eo 'https://[^[:space:]]+\.vercel\.app' | tail -1)
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+      - name: Comment the preview URL on the pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PREVIEW_URL: ${{ steps.deploy.outputs.url }}
+        run: |
+          gh pr comment "${{ github.event.number }}" --body "Preview environment: $PREVIEW_URL"
+
+  cleanup:
+    if: github.event.action == 'closed'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete the preview branch
+        uses: neondatabase/delete-branch-action@v3
+        with:
+          project_id: ${{ vars.NEON_PROJECT_ID }}
+          branch: preview/${{ github.head_ref }}
+          api_key: ${{ secrets.NEON_API_KEY }}

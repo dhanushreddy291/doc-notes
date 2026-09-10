@@ -1,0 +1,54 @@
+name: Production deploy
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: production-${{ github.ref }}
+
+jobs:
+  production:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+      - run: npm i -g neon@latest
+
+      - name: Apply neon.ts and deploy the function to production
+        run: |
+          neon deploy --branch main --project-id "$NEON_PROJECT_ID" \
+            --update-existing --allow-protected
+        env:
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+          NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
+
+      - name: Pull production's variables and run migrations
+        run: |
+          neon env pull --branch main --file .env.production --project-id "$NEON_PROJECT_ID"
+          set -a && source .env.production && set +a
+          echo "VITE_NEON_AUTH_URL=$NEON_AUTH_BASE_URL" >> "$GITHUB_ENV"
+          echo "VITE_NEON_FUNCTION_API_BASE_URL=$NEON_FUNCTION_API_BASE_URL" >> "$GITHUB_ENV"
+          npx drizzle-kit migrate
+        env:
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+          NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
+
+      - name: Build the frontend
+        run: npm run build
+
+      - name: Deploy to Vercel
+        run: |
+          mkdir -p .vercel
+          printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          npx vercel deploy dist --prod --yes --token "$VERCEL_TOKEN"
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
